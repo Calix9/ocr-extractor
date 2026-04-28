@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>OCR Tool — calix9</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Cabinet+Grotesk:wght@400;500;700&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0c0c0e;--surface:#141416;--surface2:#1c1c20;
+  --border:rgba(255,255,255,0.07);--border-hover:rgba(255,255,255,0.15);
+  --text:#f0ede8;--muted:#6b6870;
+  --accent:#c8f060;--accent-dim:rgba(200,240,96,0.1);--accent-border:rgba(200,240,96,0.3);
+  --red:#ff5f5f;--mono:'DM Mono',monospace;--display:'Cabinet Grotesk',sans-serif;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--display);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:2.5rem 1.5rem 5rem}
+.container{width:100%;max-width:1100px}
+header{margin-bottom:2.5rem}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.15em;color:var(--accent);text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.eyebrow::before{content:'';display:inline-block;width:18px;height:1px;background:var(--accent)}
+h1{font-size:clamp(1.8rem,4vw,2.6rem);font-weight:700;letter-spacing:-.02em}
+h1 span{color:var(--accent)}
+.subtitle{margin-top:8px;font-size:14px;color:var(--muted)}
+
+/* layout */
+.workspace{display:grid;grid-template-columns:1fr 380px;gap:1.5rem;align-items:start}
+@media(max-width:860px){.workspace{grid-template-columns:1fr}}
+
+/* drop zone */
+.dropzone{border:1.5px dashed var(--border-hover);border-radius:16px;padding:2.5rem;text-align:center;cursor:pointer;transition:all .25s;background:var(--surface);position:relative}
+.dropzone:hover,.dropzone.dragging{border-color:var(--accent);background:var(--accent-dim)}
+.dropzone input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.drop-icon{width:46px;height:46px;margin:0 auto 1rem;background:var(--surface2);border-radius:12px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center}
+.drop-icon svg{width:22px;height:22px;stroke:var(--accent);fill:none;stroke-width:1.5}
+.drop-title{font-size:15px;font-weight:600;margin-bottom:5px}
+.drop-sub{font-size:12px;color:var(--muted);font-family:var(--mono)}
+
+/* canvas area */
+.canvas-wrap{display:none;position:relative;background:#111;border-radius:14px;border:1px solid var(--border);overflow:hidden;user-select:none}
+#main-canvas{display:block;width:100%;cursor:crosshair}
+.canvas-toolbar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--surface);flex-wrap:wrap}
+.tool-btn{font-size:12px;font-family:var(--mono);padding:5px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:5px}
+.tool-btn:hover{border-color:var(--border-hover);color:var(--text)}
+.tool-btn.active{background:var(--accent-dim);border-color:var(--accent-border);color:var(--accent)}
+.tool-btn svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2}
+.zoom-val{font-size:12px;font-family:var(--mono);color:var(--muted);min-width:38px;text-align:center}
+.sep{width:1px;height:20px;background:var(--border);margin:0 4px}
+
+/* sidebar */
+.sidebar{}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:14px;margin-bottom:1rem;overflow:hidden}
+.panel-header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.panel-label{font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.1em}
+.status-pill{font-size:11px;font-family:var(--mono);padding:3px 10px;border-radius:20px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent-border)}
+.copy-btn{font-size:11px;font-family:var(--mono);padding:4px 10px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;transition:all .2s}
+.copy-btn:hover{color:var(--text);border-color:var(--border-hover)}
+
+.stats-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0}
+.stat{padding:12px 14px;border-right:1px solid var(--border)}
+.stat:last-child{border-right:none}
+.stat-label{font-size:10px;font-family:var(--mono);color:var(--muted);margin-bottom:4px}
+.stat-val{font-size:18px;font-weight:700;color:var(--text)}
+.stat-val.ac{color:var(--accent)}
+.conf-bar-wrap{height:3px;background:var(--surface2);margin-top:6px;border-radius:3px;overflow:hidden}
+.conf-bar{height:100%;background:var(--accent);border-radius:3px;transition:width 1s cubic-bezier(.16,1,.3,1);width:0}
+
+#full-text{padding:1.25rem;font-family:var(--mono);font-size:12.5px;line-height:1.8;color:var(--text);white-space:pre-wrap;word-break:break-word;max-height:260px;overflow-y:auto;min-height:80px}
+#full-text::-webkit-scrollbar{width:3px}
+#full-text::-webkit-scrollbar-thumb{background:var(--border-hover);border-radius:3px}
+
+/* region result panel */
+#region-panel{display:none}
+#region-text{padding:1.25rem;font-family:var(--mono);font-size:13px;line-height:1.8;color:var(--accent);white-space:pre-wrap;word-break:break-word;min-height:60px;max-height:200px;overflow-y:auto}
+.region-scanning{display:flex;align-items:center;gap:8px;padding:1.25rem;font-family:var(--mono);font-size:12px;color:var(--muted)}
+.scan-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.2}}
+
+/* highlight overlay word boxes */
+.word-highlight{position:absolute;border:1.5px solid rgba(200,240,96,0.5);background:rgba(200,240,96,0.08);border-radius:2px;pointer-events:none;transition:background .15s}
+
+/* error */
+.error-box{background:rgba(255,95,95,.08);border:1px solid rgba(255,95,95,.25);border-radius:12px;padding:12px 16px;color:var(--red);font-size:13px;font-family:var(--mono);display:none;margin-bottom:1rem}
+
+/* btn */
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px;background:var(--accent);color:#0c0c0e;font-family:var(--display);font-weight:700;font-size:14px;border:none;border-radius:12px;cursor:pointer;transition:all .2s;margin-bottom:1rem}
+.btn:hover{filter:brightness(1.08);transform:translateY(-1px)}
+.btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.spinner{width:16px;height:16px;border:2px solid rgba(0,0,0,.2);border-top-color:#000;border-radius:50%;animation:spin .7s linear infinite;display:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.hint{font-size:11px;font-family:var(--mono);color:var(--muted);text-align:center;line-height:1.6;padding:0 1rem 1rem}
+.hint b{color:var(--text);font-weight:500}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+.fade-up{animation:fadeUp .4s ease forwards}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <p class="eyebrow">Professional OCR</p>
+    <h1>Image <span>Text</span> Extractor</h1>
+    <p class="subtitle">Upload · zoom · select a region · get the text instantly</p>
+  </header>
+
+  <div class="error-box" id="error-box"></div>
+
+  <div class="workspace">
+    <!-- LEFT: image canvas -->
+    <div>
+      <!-- drop zone (shown before image loaded) -->
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="file-input" accept=".jpg,.jpeg,.png"/>
+        <div class="drop-icon">
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </div>
+        <p class="drop-title">Drop image here</p>
+        <p class="drop-sub">JPG or PNG · click to browse</p>
+      </div>
+
+      <!-- canvas (shown after image loaded) -->
+      <div class="canvas-wrap" id="canvas-wrap">
+        <div class="canvas-toolbar">
+          <button class="tool-btn active" id="btn-select" title="Select region">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/></svg> Select
+          </button>
+          <button class="tool-btn" id="btn-pan" title="Pan / move">
+            <svg viewBox="0 0 24 24"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M12 12v.01"/></svg> Pan
+          </button>
+          <div class="sep"></div>
+          <button class="tool-btn" id="btn-zoomin" title="Zoom in">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+          </button>
+          <span class="zoom-val" id="zoom-val">100%</span>
+          <button class="tool-btn" id="btn-zoomout" title="Zoom out">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+          </button>
+          <button class="tool-btn" id="btn-fit" title="Fit to screen">
+            <svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg> Fit
+          </button>
+          <div class="sep"></div>
+          <button class="tool-btn" id="btn-toggle-words" title="Toggle word boxes">
+            <svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="2"/><path d="M7 12h10"/></svg> Words
+          </button>
+          <button class="tool-btn" id="btn-new" title="Load new image">
+            <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> New
+          </button>
+        </div>
+        <div style="position:relative;overflow:hidden" id="canvas-container">
+          <canvas id="main-canvas"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: sidebar -->
+    <div class="sidebar">
+      <!-- upload btn -->
+      <button class="btn" id="extract-btn" disabled>
+        <svg style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <span id="btn-label">Upload & Extract</span>
+        <div class="spinner" id="spinner"></div>
+      </button>
+
+      <!-- region result -->
+      <div class="panel" id="region-panel">
+        <div class="panel-header">
+          <span class="panel-label">selected region</span>
+          <button class="copy-btn" id="copy-region">copy</button>
+        </div>
+        <div id="region-scanning" class="region-scanning" style="display:none">
+          <span class="scan-dot"></span> scanning region...
+        </div>
+        <div id="region-text"></div>
+      </div>
+
+      <!-- stats -->
+      <div class="panel" id="stats-panel" style="display:none">
+        <div class="stats-row">
+          <div class="stat"><p class="stat-label">words</p><p class="stat-val ac" id="stat-words">—</p></div>
+          <div class="stat"><p class="stat-label">chars</p><p class="stat-val" id="stat-chars">—</p></div>
+          <div class="stat"><p class="stat-label">confidence</p><p class="stat-val" id="stat-conf">—</p><div class="conf-bar-wrap"><div class="conf-bar" id="conf-bar"></div></div></div>
+        </div>
+      </div>
+
+      <!-- full text -->
+      <div class="panel" id="full-panel" style="display:none">
+        <div class="panel-header">
+          <span class="panel-label">full text</span>
+          <button class="copy-btn" id="copy-full">copy</button>
+        </div>
+        <div id="full-text"></div>
+      </div>
+
+      <p class="hint" id="hint" style="display:none">
+        <b>Draw</b> a box on the image to OCR any region.<br>
+        <b>Scroll</b> to zoom · <b>Pan</b> mode to move around.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('file-input');
+const extractBtn = document.getElementById('extract-btn');
+const btnLabel = document.getElementById('btn-label');
+const spinner = document.getElementById('spinner');
+const canvasWrap = document.getElementById('canvas-wrap');
+const canvasContainer = document.getElementById('canvas-container');
+const canvas = document.getElementById('main-canvas');
+const ctx = canvas.getContext('2d');
+const errorBox = document.getElementById('error-box');
+
+let selectedFile = null;
+let imageB64 = null;
+let imgObj = new Image();
+let zoom = 1, panX = 0, panY = 0;
+let mode = 'select'; // 'select' | 'pan'
+let words = [], showWords = true;
+let imgNaturalW = 0, imgNaturalH = 0;
+
+// selection state
+let selecting = false, selStart = null, selEnd = null;
+let panning = false, panStart = null;
+
+// ── File input ──
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragging'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragging'));
+dropzone.addEventListener('drop', e => { e.preventDefault(); dropzone.classList.remove('dragging'); if (e.dataTransfer.files[0]) pick(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) pick(fileInput.files[0]); });
+document.getElementById('btn-new').addEventListener('click', () => {
+  dropzone.style.display = 'block'; canvasWrap.style.display = 'none';
+  document.getElementById('stats-panel').style.display = 'none';
+  document.getElementById('full-panel').style.display = 'none';
+  document.getElementById('region-panel').style.display = 'none';
+  document.getElementById('hint').style.display = 'none';
+  extractBtn.disabled = true; btnLabel.textContent = 'Upload & Extract';
+  imageB64 = null; words = [];
+});
+
+function pick(file) {
+  selectedFile = file;
+  extractBtn.disabled = false;
+  errorBox.style.display = 'none';
+}
+
+// ── Upload & OCR ──
+extractBtn.addEventListener('click', async () => {
+  if (!selectedFile) return;
+  extractBtn.disabled = true;
+  btnLabel.textContent = 'Extracting...';
+  spinner.style.display = 'block';
+  extractBtn.querySelector('svg').style.display = 'none';
+  errorBox.style.display = 'none';
+
+  const fd = new FormData();
+  fd.append('image', selectedFile);
+
+  try {
+    const res = await fetch('/upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.error) { showError(data.error); return; }
+
+    imageB64 = data.image_b64;
+    imgNaturalW = data.img_width;
+    imgNaturalH = data.img_height;
+    words = data.words || [];
+
+    // load image onto canvas
+    imgObj = new Image();
+    imgObj.onload = () => {
+      dropzone.style.display = 'none';
+      canvasWrap.style.display = 'block';
+      fitImage();
+      drawCanvas();
+      document.getElementById('stats-panel').style.display = 'block';
+      document.getElementById('full-panel').style.display = 'block';
+      document.getElementById('hint').style.display = 'block';
+      document.getElementById('stats-panel').classList.add('fade-up');
+    };
+    imgObj.src = 'data:image/jpeg;base64,' + imageB64;
+
+    // stats
+    document.getElementById('stat-words').textContent = data.word_count;
+    document.getElementById('stat-chars').textContent = data.char_count;
+    document.getElementById('stat-conf').textContent = data.confidence + '%';
+    setTimeout(() => document.getElementById('conf-bar').style.width = data.confidence + '%', 200);
+    document.getElementById('full-text').textContent = data.text || '(no text detected)';
+
+  } catch(e) { showError('Server error: ' + e.message); }
+  finally {
+    extractBtn.disabled = false;
+    btnLabel.textContent = 'Re-extract';
+    spinner.style.display = 'none';
+    extractBtn.querySelector('svg').style.display = 'block';
+  }
+});
+
+// ── Canvas drawing ──
+function fitImage() {
+  const cw = canvasContainer.clientWidth || 600;
+  const ch = Math.min(window.innerHeight * 0.65, 600);
+  zoom = Math.min(cw / imgNaturalW, ch / imgNaturalH, 1);
+  panX = (cw - imgNaturalW * zoom) / 2;
+  panY = (ch - imgNaturalH * zoom) / 2;
+  canvas.width = cw;
+  canvas.height = ch;
+  updateZoomLabel();
+}
+
+function drawCanvas() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.translate(panX, panY);
+  ctx.scale(zoom, zoom);
+  ctx.drawImage(imgObj, 0, 0, imgNaturalW, imgNaturalH);
+
+  // word boxes
+  if (showWords && words.length) {
+    words.forEach(w => {
+      ctx.strokeStyle = 'rgba(200,240,96,0.45)';
+      ctx.fillStyle = 'rgba(200,240,96,0.06)';
+      ctx.lineWidth = 1 / zoom;
+      ctx.fillRect(w.x, w.y, w.w, w.h);
+      ctx.strokeRect(w.x, w.y, w.w, w.h);
+    });
+  }
+
+  // selection rectangle
+  if (selStart && selEnd) {
+    const rx = Math.min(selStart.x, selEnd.x);
+    const ry = Math.min(selStart.y, selEnd.y);
+    const rw = Math.abs(selEnd.x - selStart.x);
+    const rh = Math.abs(selEnd.y - selStart.y);
+    ctx.fillStyle = 'rgba(200,240,96,0.15)';
+    ctx.strokeStyle = '#c8f060';
+    ctx.lineWidth = 2 / zoom;
+    ctx.fillRect(rx, ry, rw, rh);
+    ctx.strokeRect(rx, ry, rw, rh);
+  }
+  ctx.restore();
+}
+
+function canvasToImage(cx, cy) {
+  return { x: (cx - panX) / zoom, y: (cy - panY) / zoom };
+}
+
+function getCanvasPos(e) {
+  const r = canvas.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  return { x: clientX - r.left, y: clientY - r.top };
+}
+
+// ── Mouse events ──
+canvas.addEventListener('mousedown', e => {
+  const cp = getCanvasPos(e);
+  if (mode === 'select') {
+    selecting = true;
+    selStart = canvasToImage(cp.x, cp.y);
+    selEnd = { ...selStart };
+  } else {
+    panning = true;
+    panStart = { x: cp.x - panX, y: cp.y - panY };
+    canvas.style.cursor = 'grabbing';
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  const cp = getCanvasPos(e);
+  if (selecting) {
+    selEnd = canvasToImage(cp.x, cp.y);
+    drawCanvas();
+  } else if (panning) {
+    panX = cp.x - panStart.x;
+    panY = cp.y - panStart.y;
+    drawCanvas();
+  }
+});
+
+canvas.addEventListener('mouseup', async e => {
+  if (selecting) {
+    selecting = false;
+    const dx = Math.abs(selEnd.x - selStart.x);
+    const dy = Math.abs(selEnd.y - selStart.y);
+    if (dx > 8 && dy > 8) await runRegionOCR();
+    else { selStart = null; selEnd = null; drawCanvas(); }
+  }
+  if (panning) { panning = false; canvas.style.cursor = 'grab'; }
+});
+
+canvas.addEventListener('mouseleave', () => { selecting = false; panning = false; });
+
+// scroll to zoom
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const cp = getCanvasPos(e);
+  const delta = e.deltaY > 0 ? 0.9 : 1.1;
+  const imgP = canvasToImage(cp.x, cp.y);
+  zoom = Math.max(0.1, Math.min(10, zoom * delta));
+  panX = cp.x - imgP.x * zoom;
+  panY = cp.y - imgP.y * zoom;
+  updateZoomLabel();
+  drawCanvas();
+}, { passive: false });
+
+// ── Toolbar ──
+document.getElementById('btn-select').addEventListener('click', () => setMode('select'));
+document.getElementById('btn-pan').addEventListener('click', () => setMode('pan'));
+document.getElementById('btn-zoomin').addEventListener('click', () => adjustZoom(1.25));
+document.getElementById('btn-zoomout').addEventListener('click', () => adjustZoom(0.8));
+document.getElementById('btn-fit').addEventListener('click', () => { fitImage(); drawCanvas(); });
+document.getElementById('btn-toggle-words').addEventListener('click', function() {
+  showWords = !showWords;
+  this.classList.toggle('active', showWords);
+  drawCanvas();
+});
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('btn-select').classList.toggle('active', m === 'select');
+  document.getElementById('btn-pan').classList.toggle('active', m === 'pan');
+  canvas.style.cursor = m === 'pan' ? 'grab' : 'crosshair';
+}
+
+function adjustZoom(factor) {
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  const imgP = canvasToImage(cx, cy);
+  zoom = Math.max(0.1, Math.min(10, zoom * factor));
+  panX = cx - imgP.x * zoom;
+  panY = cy - imgP.y * zoom;
+  updateZoomLabel();
+  drawCanvas();
+}
+
+function updateZoomLabel() {
+  document.getElementById('zoom-val').textContent = Math.round(zoom * 100) + '%';
+}
+
+// ── Region OCR ──
+async function runRegionOCR() {
+  if (!imageB64 || !selStart || !selEnd) return;
+  const x = Math.round(Math.min(selStart.x, selEnd.x));
+  const y = Math.round(Math.min(selStart.y, selEnd.y));
+  const w = Math.round(Math.abs(selEnd.x - selStart.x));
+  const h = Math.round(Math.abs(selEnd.y - selStart.y));
+
+  document.getElementById('region-panel').style.display = 'block';
+  document.getElementById('region-text').textContent = '';
+  document.getElementById('region-scanning').style.display = 'flex';
+
+  try {
+    const res = await fetch('/ocr-region', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_b64: imageB64, x, y, w, h })
+    });
+    const data = await res.json();
+    document.getElementById('region-scanning').style.display = 'none';
+    if (data.error) {
+      document.getElementById('region-text').textContent = '⚠ ' + data.error;
+    } else {
+      document.getElementById('region-text').textContent = data.text || '(no text in selection)';
+    }
+  } catch(e) {
+    document.getElementById('region-scanning').style.display = 'none';
+    document.getElementById('region-text').textContent = '⚠ ' + e.message;
+  }
+}
+
+// copy buttons
+document.getElementById('copy-full').addEventListener('click', function() {
+  navigator.clipboard.writeText(document.getElementById('full-text').textContent);
+  this.textContent = 'copied!'; setTimeout(() => this.textContent = 'copy', 2000);
+});
+document.getElementById('copy-region').addEventListener('click', function() {
+  navigator.clipboard.writeText(document.getElementById('region-text').textContent);
+  this.textContent = 'copied!'; setTimeout(() => this.textContent = 'copy', 2000);
+});
+
+function showError(msg) {
+  errorBox.textContent = '⚠ ' + msg;
+  errorBox.style.display = 'block';
+}
+
+// init word toggle as active
+document.getElementById('btn-toggle-words').classList.add('active');
+</script>
+</body>
+</html>
